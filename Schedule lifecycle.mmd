@@ -1,0 +1,45 @@
+---
+config:
+  layout: elk
+---
+flowchart TD
+    A[Shipment packages received / Package收货扫描] --> B[Update package status / 更新Package状态]
+    B --> C[Aggregate shipment receiving status / 汇总Shipment收货状态]
+
+    C --> D{Shipment ready for scheduling? / Shipment是否可排线}
+    D -->|No| E[Palletize / 打板]
+    E --> F[Put away / 入库上架]
+    F --> G[Waiting for scheduling / 等待排线]
+
+    D -->|Yes| G
+
+    G --> H[Generate schedule by shipment / 按Shipment生成Schedule]
+    H --> I[Route optimization by shipment address / 按Shipment地址优化路线]
+
+    I --> J{Assignment model / 分配模式}
+
+    J -->|Direct driver| K[Assign schedule to driver / 分配给司机]
+    J -->|DSP mode| L[Assign schedule to DSP / 分配给DSP]
+    L --> M[DSP assigns driver / DSP分配司机]
+
+    K --> N[Schedule assigned / Schedule已分配]
+    M --> N
+
+    N --> O[Driver pickup process / 司机提货流程]
+
+    O --> P[Package pickup scan verification / Package级提货扫描校验]
+
+    P --> Q{All shipments fully picked up? / 所有Shipment是否完整提货}
+    Q -->|Yes| R[Schedule picked up / Schedule已提货]
+    Q -->|No| S[Pickup exception / 提货异常]
+
+    S --> T{Allow start with exception? / 是否允许异常开始}
+    T -->|No| O
+    T -->|Yes| U[Schedule picked up with exceptions / 带异常提货]
+
+    R --> V[Out for delivery / 派送中]
+    U --> V
+
+    V --> W{All shipment results completed? / 所有Shipment是否有最终结果}
+    W -->|Yes| X[Schedule completed / Schedule完成]
+    W -->|No| Y[Schedule partially completed / Schedule部分完成]
