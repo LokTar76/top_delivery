@@ -1,0 +1,59 @@
+---
+config:
+  layout: elk
+---
+flowchart TB
+    A["Customer creates shipment / 打单建单"] --> B["Manifest created / 生成 Manifest"]
+    B --> C["Pickup or customer drop-off / 客户交货"]
+    C --> D["Warehouse receiving scan / 仓库收货扫描"]
+    D --> E{"Received matched manifest? / 是否匹配 Manifest"}
+    E -- Yes --> F["Sorting / 分拣"]
+    E -- No --> E1["Discrepancy handling / 差异处理"]
+    E1 --> F
+    F --> G{"Can deliver today? / 是否当天可派"}
+    G -- Yes --> H["Generate delivery schedule / 生成派送 Schedule"]
+    G -- No --> G1["Palletize / 打板"]
+    G1 --> G2["Put away / 入库上架"]
+    G2 --> H
+    H --> I["Route optimization / 路线优化"]
+    I --> J["Assign to DSP or driver / 分配给 DSP 或司机"]
+    J --> K{"Assigned to DSP? / 是否分配给 DSP"}
+    K -- Yes --> K1["DSP assigns driver / DSP 分配司机"]
+    K -- No --> L["Driver assigned / 司机确认"]
+    K1 --> L
+    L --> M["Driver pickup scan / 司机提货扫描"]
+    M --> N["Load vehicle / 装车"]
+    N --> O["Start delivery / 开始派送"]
+    O --> P{"Delivery result / 派送结果"}
+    P -- Delivered --> Q["POD captured / 上传 POD"]
+    Q --> R["Shipment completed / 派送完成"]
+    P -- Failed delivery --> S["Failed reason recorded / 记录失败原因"]
+    S --> T["Return to warehouse / 退回仓库"]
+    T --> U{"Reattempt? / 是否重新派送"}
+    U -- Yes --> H
+    U -- No --> V["Return to sender or manual handling / 退件或人工处理"]
+    n1["Order Created
+↓
+Manifested
+↓
+Received
+↓
+Sorted
+↓
+Stored / Ready for Schedule
+↓
+Scheduled
+↓
+Assigned
+↓
+Picked Up by Driver
+↓
+Out for Delivery
+↓
+Delivered / Failed
+↓
+Completed / Returned"]
+
+    n1@{ shape: text}
+     n1:::Pine
+    classDef Pine stroke-width:1px, stroke-dasharray:none, stroke:#254336, fill:#27654A, color:#FFFFFF
