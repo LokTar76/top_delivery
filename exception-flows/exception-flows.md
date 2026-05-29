@@ -2452,7 +2452,422 @@ Delivery execution problems after departure belong to Delivery / POD Flow.
 
 # 11. Delivery / POD Flow
 
-_To be defined._
+## 11.1 Purpose
+
+The Delivery / POD Flow governs final shipment delivery execution and proof-of-delivery validation.
+
+This flow ensures:
+
+- delivery attempt accountability
+- accurate delivery status recording
+- proof-of-delivery integrity
+- customer notification reliability
+- final shipment closure correctness
+
+This is the final operational stage before shipment completion.
+
+---
+
+## 11.2 Normal Flow
+
+```mermaid
+flowchart LR
+Depart[Out For Delivery]
+--> Arrive[Arrive At Delivery Location]
+--> Execute[Delivery Attempt]
+--> Capture[Capture POD]
+--> Submit[Submit Delivery Result]
+--> Complete[Shipment Completed]
+```
+
+---
+
+### Standard Processing Steps
+
+1. Driver arrives at destination
+2. Driver performs delivery attempt
+3. Delivery result is selected
+4. POD evidence is captured
+5. Delivery result submitted
+6. Shipment status updated
+7. Customer notification triggered
+8. Shipment closed
+
+Successful outcome:
+
+```text
+Shipment Status = DELIVERED
+```
+
+---
+
+## 11.3 Core Delivery Rules
+
+---
+
+### Delivery Validation Rule
+
+Delivery must occur only for:
+
+```text
+OUT_FOR_DELIVERY
+```
+
+shipments.
+
+---
+
+### POD Evidence Rule
+
+Successful delivery requires valid POD evidence.
+
+Required evidence may include:
+
+- signature
+- photo
+- receiver name
+- timestamp
+- GPS verification
+
+depending on service type.
+
+---
+
+### Delivery Attempt Integrity Rule
+
+Every delivery attempt must produce a final auditable outcome.
+
+No silent failures are permitted.
+
+---
+
+## 11.4 Trigger Point
+
+Delivery / POD exceptions are triggered:
+
+- During delivery result submission
+- During POD capture
+- During proof validation
+- During delivery completion
+- During customer notification dispatch
+
+---
+
+## 11.5 Exception Scenarios
+
+---
+
+### DL-01 Delivery Attempt Without Valid Pickup
+
+#### Description
+
+Driver attempts delivery for shipment without confirmed pickup integrity.
+
+#### Detection Rule
+
+Shipment not properly transitioned through pickup confirmation.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_WITHOUT_PICKUP_VALIDATION
+Severity: CRITICAL
+Status: OPEN
+```
+
+Block delivery submission.
+
+---
+
+### DL-02 Delivery To Invalid Status Shipment
+
+#### Description
+
+Driver attempts delivery action on shipment not eligible for delivery.
+
+Examples:
+
+- CANCELLED
+- ON_HOLD
+- NOT_PICKED
+- RETURNED
+- ALREADY_DELIVERED
+
+#### Detection Rule
+
+Shipment status invalid for delivery.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: INVALID_DELIVERY_STATE
+Severity: HIGH
+Status: OPEN
+```
+
+Reject submission.
+
+---
+
+### DL-03 Missing POD Evidence
+
+#### Description
+
+Delivery marked successful without required POD evidence.
+
+#### Detection Rule
+
+Required POD elements missing.
+
+Examples:
+
+- no signature
+- no photo
+- no receiver confirmation
+
+#### System Action
+
+Create exception:
+
+```text
+Type: POD_MISSING
+Severity: HIGH
+Status: OPEN
+```
+
+Block completion or route to pending POD upload.
+
+#### Operator Resolution Options
+
+- Upload missing POD
+- Supervisor override
+- Mark delivery pending evidence
+
+---
+
+### DL-04 Invalid POD Submission
+
+#### Description
+
+POD submission fails validation.
+
+Examples:
+
+- corrupted image
+- unreadable signature
+- empty file
+- invalid file format
+
+#### Detection Rule
+
+POD validation service fails.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: POD_INVALID
+Severity: HIGH
+Status: OPEN
+```
+
+Reject submission.
+
+---
+
+### DL-05 GPS Delivery Location Mismatch
+
+#### Description
+
+Delivery recorded significantly outside expected destination.
+
+#### Detection Rule
+
+Driver GPS exceeds allowed delivery radius.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_LOCATION_MISMATCH
+Severity: HIGH
+Status: OPEN
+```
+
+Flag for review.
+
+#### Operator Resolution Options
+
+- Accept with explanation
+- Investigate
+- Escalate for audit
+
+---
+
+### DL-06 Delivery Attempt Failed
+
+#### Description
+
+Driver unable to complete delivery.
+
+Examples:
+
+- receiver unavailable
+- no access
+- business closed
+- gate locked
+- no forklift
+- refused delivery
+
+#### Detection Rule
+
+Driver submits failed attempt reason.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_ATTEMPT_FAILED
+Severity: MEDIUM
+Status: OPEN
+```
+
+Set shipment status:
+
+```text
+DELIVERY_FAILED
+```
+
+Schedule reassignment workflow.
+
+---
+
+### DL-07 Delivery Submission Failed
+
+#### Description
+
+Driver completed delivery but result upload failed.
+
+Examples:
+
+- network timeout
+- API failure
+- backend persistence error
+
+#### Detection Rule
+
+Delivery submission transaction incomplete.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_SUBMISSION_FAILED
+Severity: HIGH
+Status: OPEN
+```
+
+Move to pending retry queue.
+
+#### Notes
+
+This aligns with your existing pending POD upload / retry design.
+
+---
+
+## 11.6 Pending POD Recovery Workflow
+
+If delivery execution succeeded but POD submission failed:
+
+Set shipment status:
+
+```text
+PENDING_POD_UPLOAD
+```
+
+Recovery options:
+
+- automatic background retry
+- manual driver resubmission
+- operator-assisted upload
+
+---
+
+## 11.7 Delivery Completion Gate
+
+Shipment may transition to:
+
+```text
+DELIVERED
+```
+
+only if:
+
+```text
+valid delivery state
+AND valid POD
+AND no blocking delivery exception
+AND shipment atomicity preserved
+```
+
+---
+
+## 11.8 Status Transitions
+
+### Normal Flow
+
+```mermaid
+stateDiagram-v2
+    OUT_FOR_DELIVERY --> DELIVERY_ATTEMPTED
+    DELIVERY_ATTEMPTED --> POD_SUBMITTED
+    POD_SUBMITTED --> DELIVERED
+```
+
+---
+
+### Exception Flow
+
+```mermaid
+stateDiagram-v2
+    DELIVERY_ATTEMPTED --> EXCEPTION_PENDING
+    EXCEPTION_PENDING --> PENDING_POD_UPLOAD
+    EXCEPTION_PENDING --> RESCHEDULE_REQUIRED
+    EXCEPTION_PENDING --> DELIVERED
+```
+
+---
+
+## 11.9 Audit Requirements
+
+All delivery / POD exceptions must log:
+
+- Shipment ID
+- Package IDs
+- Driver ID
+- Schedule ID
+- Delivery attempt ID
+- GPS coordinates
+- Timestamp
+- POD references
+- Failure reason
+- Exception type
+- Resolution details
+
+---
+
+## 11.10 Notes
+
+Delivery / POD exceptions focus on final execution integrity.
+
+Post-delivery commercial disputes belong to Billing / Invoice Flow.
 
 ---
 
