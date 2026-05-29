@@ -1241,21 +1241,1212 @@ Delivery driver pickup problems should be handled later in the Driver Pickup Flo
 
 ---
 
-# 8. Warehouse Processing Flow
+# 8. Sort & Dispatch Preparation Flow
 
-_To be defined._
+## 8.1 Purpose
+
+The Sort & Dispatch Preparation Flow handles automated conveyor-based sorting after inbound scan.
+
+This flow is responsible for:
+
+- Determining shipment handling eligibility
+- Resolving delivery zone
+- Routing shipments to sorting lanes
+- Enforcing shipment grouping constraints
+- Building zone pallets
+- Triggering automatic delivery schedule generation
+
+This flow bridges inbound receiving and final delivery assignment.
+
+---
+
+## 8.2 Normal Flow
+
+```mermaid
+flowchart LR
+Scan[Inbound Scan]
+--> Profile[Resolve Handling Profile]
+--> Decision{Auto Sort Eligible?}
+Decision -->|Yes| Zone[Resolve Delivery Zone]
+Zone --> Sort[Sort To Zone Chute / Pallet]
+Sort --> Group[Shipment Group Validation]
+Group --> Schedule[Auto Generate Delivery Schedule]
+Schedule --> Ready[Ready For Driver Assignment]
+
+Decision -->|No| Manual[Manual Handling Lane]
+```
+
+---
+
+### Standard Processing Steps
+
+1. Scan inbound package barcode
+2. Resolve shipment handling profile
+3. Validate auto-sort eligibility
+4. Resolve delivery zone
+5. Route package to sorting chute
+6. Apply shipment grouping rules
+7. Build dispatch pallet
+8. Generate delivery schedule automatically
+9. Mark shipment ready for driver assignment
+
+Successful outcome:
+
+```text
+Shipment Status = SORTED
+Delivery Schedule Status = WAITING_ASSIGN_DRIVER
+```
+
+---
+
+## 8.3 Sorting Eligibility Rules
+
+A shipment may enter automated sorting only if all conditions are met.
+
+### Service Eligibility
+
+Shipment service type must map to:
+
+```text
+PARCEL_SORTABLE
+```
+
+Examples:
+
+Eligible:
+
+- Parcel Economy
+- Parcel Standard
+
+Not Eligible:
+
+- Premium Freight
+- Oversize
+- Pallet Service
+- Manual Handling Required
+
+---
+
+### Package Dimension Limits
+
+Each package must satisfy configured limits.
+
+Example:
+
+```text
+Length <= 60 cm
+Width <= 50 cm
+Height <= 40 cm
+Weight <= configured parcel limit
+```
+
+---
+
+### Shipment Completeness Rule
+
+All required packages must be received.
+
+```text
+received_packages == shipment.package_count
+```
+
+unless shipment qualifies for dedicated reserved sorting chute handling.
+
+---
+
+### Exception-Free Rule
+
+Shipment must not have unresolved blocking exceptions.
+
+---
+
+## 8.4 Multi-Package Shipment Sorting Constraint
+
+Large multi-package shipments must not be mixed with unrelated cargo.
+
+---
+
+### Dedicated Sorting Rule
+
+If:
+
+```text
+shipment.package_count > 5
+```
+
+the shipment must reserve a dedicated sorting chute / pallet position.
+
+The chute remains reserved until:
+
+```text
+scanned_packages == shipment.package_count
+```
+
+No other shipment may enter this reserved chute.
+
+---
+
+### Shipment Atomicity Rule
+
+Unless explicitly approved by operator:
+
+```text
+All packages belonging to one shipment must remain
+within the same sorting group,
+dispatch pallet,
+delivery schedule,
+and delivery attempt.
+```
+
+This prevents split delivery and cost duplication.
+
+---
+
+## 8.5 Trigger Point
+
+Sort & dispatch exceptions are triggered:
+
+- During handling profile resolution
+- During auto-sort eligibility validation
+- During delivery zone resolution
+- During chute assignment
+- During shipment grouping validation
+- During dispatch pallet build
+- During automatic schedule generation
+
+---
+
+## 8.6 Exception Scenarios
+
+---
+
+### SD-01 Handling Profile Resolution Failed
+
+#### Description
+
+System cannot determine shipment handling profile.
+
+#### Detection Rule
+
+No valid handling profile mapping exists.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: HANDLING_PROFILE_NOT_RESOLVED
+Severity: HIGH
+Status: OPEN
+```
+
+Route shipment to manual handling lane.
+
+---
+
+### SD-02 Auto Sort Eligibility Failed
+
+#### Description
+
+Shipment does not satisfy automated sorting constraints.
+
+#### Detection Rule
+
+Any eligibility rule fails.
+
+Examples:
+
+- unsupported service type
+- package exceeds size limit
+- package exceeds weight limit
+- shipment has blocking exception
+
+#### System Action
+
+Create exception:
+
+```text
+Type: AUTO_SORT_INELIGIBLE
+Severity: MEDIUM
+Status: OPEN
+```
+
+Route shipment to manual handling lane.
+
+---
+
+### SD-03 Delivery Zone Resolution Failed
+
+#### Description
+
+System cannot resolve shipment delivery zone.
+
+#### Detection Rule
+
+No zone mapping found for:
+
+```text
+suburb + postcode + depot
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_ZONE_RESOLUTION_FAILED
+Severity: HIGH
+Status: OPEN
+```
+
+Hold shipment for manual review.
+
+---
+
+### SD-04 Wrong Physical Sort Placement
+
+#### Description
+
+Shipment is placed into incorrect sorting chute or pallet.
+
+#### Detection Rule
+
+```text
+assigned_zone != physical_sort_zone
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: WRONG_SORT_DESTINATION
+Severity: HIGH
+Status: OPEN
+```
+
+Require correction before schedule generation.
+
+---
+
+### SD-05 Reserved Chute Conflict
+
+#### Description
+
+System attempts to route cargo into chute reserved by another incomplete multi-package shipment.
+
+#### Detection Rule
+
+```text
+target_chute.reserved_shipment_id != current_shipment_id
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: RESERVED_CHUTE_CONFLICT
+Severity: HIGH
+Status: OPEN
+```
+
+Redirect to manual intervention lane.
+
+---
+
+### SD-06 Shipment Group Incomplete
+
+#### Description
+
+Large multi-package shipment has not been fully scanned.
+
+#### Detection Rule
+
+```text
+shipment.package_count > 5
+AND scanned_packages < shipment.package_count
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: SHIPMENT_GROUP_INCOMPLETE
+Severity: HIGH
+Status: OPEN
+```
+
+Prevent dispatch pallet release.
+
+---
+
+### SD-07 Shipment Atomicity Violation
+
+#### Description
+
+Packages of same shipment are allocated to different dispatch groups.
+
+#### Detection Rule
+
+Packages of same shipment mapped to multiple pallets or schedules.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: SHIPMENT_SPLIT_DETECTED
+Severity: CRITICAL
+Status: OPEN
+```
+
+Block automatic schedule generation.
+
+#### Operator Resolution Options
+
+- Reconcile packages into one group
+- Approve intentional split delivery
+- Move shipment to manual scheduling
+
+---
+
+### SD-08 Dispatch Pallet Capacity Exceeded
+
+#### Description
+
+Zone pallet exceeds configured operational limits.
+
+Examples:
+
+- package count exceeded
+- CBM exceeded
+- route capacity exceeded
+
+#### Detection Rule
+
+Configured pallet thresholds exceeded.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: PALLET_CAPACITY_EXCEEDED
+Severity: HIGH
+Status: OPEN
+```
+
+Split into multiple dispatch groups.
+
+---
+
+### SD-09 Automatic Schedule Generation Failed
+
+#### Description
+
+System failed to generate delivery schedule from sorted dispatch pallet.
+
+#### Detection Rule
+
+Schedule generation service fails.
+
+Examples:
+
+- route build failure
+- capacity conflict
+- missing scheduling configuration
+- system processing error
+
+#### System Action
+
+Create exception:
+
+```text
+Type: AUTO_SCHEDULE_GENERATION_FAILED
+Severity: HIGH
+Status: OPEN
+```
+
+Move pallet to manual scheduling queue.
+
+---
+
+### SD-10 Manual Lane Overflow
+
+#### Description
+
+Too many shipments are diverted to manual handling.
+
+#### Detection Rule
+
+Manual lane exceeds configured threshold.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: MANUAL_HANDLING_CAPACITY_EXCEEDED
+Severity: MEDIUM
+Status: OPEN
+```
+
+Escalate to warehouse supervisor.
+
+---
+
+## 8.7 Sorting Lane Types
+
+The system supports three processing lanes.
+
+### Auto Sort Lane
+
+For standard sortable parcel shipments.
+
+---
+
+### Reserved Shipment Lane
+
+For large multi-package sortable shipments.
+
+---
+
+### Manual Handling Lane
+
+For:
+
+- oversize cargo
+- premium freight
+- exception cargo
+- unresolved zone mapping
+- special handling cargo
+
+---
+
+## 8.8 Status Transitions
+
+### Normal Flow
+
+```mermaid
+stateDiagram-v2
+    RECEIVED --> SORTING
+    SORTING --> SORTED
+    SORTED --> SCHEDULE_GENERATED
+```
+
+---
+
+### Exception Flow
+
+```mermaid
+stateDiagram-v2
+    RECEIVED --> SORTING
+    SORTING --> EXCEPTION_PENDING
+    EXCEPTION_PENDING --> MANUAL_HANDLING
+    EXCEPTION_PENDING --> SORTED
+```
+
+---
+
+## 8.9 Audit Requirements
+
+All sort & dispatch exceptions must log:
+
+- Shipment ID
+- Package ID
+- Handling profile
+- Delivery zone
+- Assigned sorting lane
+- Physical sort destination
+- Chute / pallet ID
+- Operator
+- Timestamp
+- Exception type
+- Resolution action
+
+---
+
+## 8.10 Notes
+
+This flow assumes conveyor-assisted cross-dock processing.
+
+Long-term warehouse storage and rack-based putaway are outside scope of this flow.
 
 ---
 
 # 9. Delivery Assignment Flow
 
-_To be defined._
+## 9.1 Purpose
+
+The Delivery Assignment Flow is responsible for converting sorted dispatch groups into executable delivery schedules.
+
+This flow ensures shipments are assigned to valid delivery schedules while respecting:
+
+- delivery zone constraints
+- vehicle capacity
+- shipment atomicity
+- driver availability
+- operational scheduling rules
+
+---
+
+## 9.2 Normal Flow
+
+```mermaid
+flowchart LR
+Sorted[Sorted Dispatch Group]
+--> Validate[Validate Assignment Constraints]
+--> Build[Generate Delivery Schedule]
+--> Assign[Assign Driver / Vehicle]
+--> Ready[Ready For Driver Acceptance]
+```
+
+---
+
+### Standard Processing Steps
+
+1. Receive sorted dispatch group
+2. Validate shipment grouping integrity
+3. Validate schedule capacity
+4. Build delivery route group
+5. Generate delivery schedule
+6. Assign driver / vehicle
+7. Mark schedule available for driver acceptance
+
+Successful outcome:
+
+```text
+Delivery Schedule Status = WAITING_FOR_DELIVERY
+```
+
+---
+
+## 9.3 Trigger Point
+
+Delivery assignment exceptions are triggered:
+
+- During schedule generation
+- During schedule split logic
+- During vehicle capacity validation
+- During driver assignment
+- During route integrity validation
+- During final schedule publish
+
+---
+
+## 9.4 Assignment Constraints
+
+All delivery assignments must satisfy:
+
+---
+
+### Capacity Constraint
+
+```text
+shipment_count <= 100
+total_cbm <= 6
+```
+
+---
+
+### Shipment Atomicity Constraint
+
+All packages of one shipment must remain in same schedule.
+
+---
+
+### Zone Integrity Constraint
+
+All shipments within a schedule must belong to compatible delivery zone cluster.
+
+---
+
+### Driver Availability Constraint
+
+A valid driver must be assignable.
+
+---
+
+## 9.5 Exception Scenarios
+
+---
+
+### DA-01 Schedule Capacity Exceeded
+
+#### Description
+
+Dispatch group exceeds configured schedule limits.
+
+#### Detection Rule
+
+Any of:
+
+```text
+shipment_count > 100
+OR total_cbm > 6
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: SCHEDULE_CAPACITY_EXCEEDED
+Severity: HIGH
+Status: OPEN
+```
+
+Attempt automatic schedule split.
+
+#### Operator Resolution Options
+
+- Accept auto split
+- Adjust schedule manually
+- Reassign oversized shipments
+
+---
+
+### DA-02 Auto Split Failed
+
+#### Description
+
+System cannot split oversized dispatch group into valid schedules.
+
+#### Detection Rule
+
+Auto split algorithm cannot produce valid schedules.
+
+Examples:
+
+- indivisible large shipment
+- conflicting capacity constraints
+- atomicity violation risk
+
+#### System Action
+
+Create exception:
+
+```text
+Type: AUTO_SPLIT_FAILED
+Severity: HIGH
+Status: OPEN
+```
+
+Move group to manual planning queue.
+
+---
+
+### DA-03 Shipment Atomicity Violation
+
+#### Description
+
+Schedule generation attempts to split packages of same shipment across multiple schedules.
+
+#### Detection Rule
+
+Packages of same shipment assigned to different schedules.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: SHIPMENT_ASSIGNMENT_SPLIT
+Severity: CRITICAL
+Status: OPEN
+```
+
+Block schedule publish.
+
+#### Operator Resolution Options
+
+- Rebuild schedule
+- Move shipment intact
+- Supervisor-approved split delivery
+
+---
+
+### DA-04 Vehicle Capacity Mismatch
+
+#### Description
+
+Assigned vehicle cannot safely carry schedule load.
+
+#### Detection Rule
+
+Schedule exceeds vehicle limits.
+
+Examples:
+
+- CBM exceeded
+- package count exceeded
+- oversized shipment incompatible
+
+#### System Action
+
+Create exception:
+
+```text
+Type: VEHICLE_CAPACITY_MISMATCH
+Severity: HIGH
+Status: OPEN
+```
+
+Block assignment.
+
+---
+
+### DA-05 Schedule Contains Blocked Shipment
+
+#### Description
+
+Schedule includes shipment with unresolved blocking exception.
+
+Examples:
+
+- address review pending
+- incomplete sort
+- damaged cargo hold
+- manual handling unresolved
+
+#### Detection Rule
+
+Shipment has unresolved blocking exception.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: BLOCKED_SHIPMENT_ASSIGNED
+Severity: HIGH
+Status: OPEN
+```
+
+Remove shipment from generated schedule.
+
+---
+
+### DA-06 Manual Override Conflict
+
+#### Description
+
+Manual assignment conflicts with system-generated schedule rules.
+
+#### Detection Rule
+
+Operator override violates:
+
+- capacity
+- atomicity
+- depot rule
+- vehicle constraint
+
+#### System Action
+
+Create exception:
+
+```text
+Type: MANUAL_ASSIGNMENT_CONFLICT
+Severity: MEDIUM
+Status: OPEN
+```
+
+Require supervisor confirmation.
+
+---
+
+## 9.6 Status Transitions
+
+### Normal Flow
+
+```mermaid
+stateDiagram-v2
+    SORTED --> GENERATING
+    GENERATING --> WAITING_ASSIGN_DRIVER
+    WAITING_ASSIGN_DRIVER --> WAITING_FOR_DELIVERY
+```
+
+---
+
+### Exception Flow
+
+```mermaid
+stateDiagram-v2
+    SORTED --> GENERATING
+    GENERATING --> EXCEPTION_PENDING
+    EXCEPTION_PENDING --> MANUAL_ASSIGNMENT
+    EXCEPTION_PENDING --> WAITING_ASSIGN_DRIVER
+```
+
+---
+
+## 9.7 Audit Requirements
+
+All delivery assignment exceptions must log:
+
+- Shipment IDs
+- Schedule ID
+- Driver ID if assigned
+- Vehicle ID if assigned
+- Delivery zone
+- CBM
+- Shipment count
+- Assignment algorithm output
+- Operator override actions
+- Exception type
+- Resolution details
+- Timestamp
+
+---
+
+## 9.8 Notes
+
+Delivery Assignment exceptions focus on schedule construction integrity.
+
+Driver execution issues after schedule acceptance belong to later Driver Pickup Flow.
 
 ---
 
 # 10. Driver Pickup Flow
 
-_To be defined._
+## 10.1 Purpose
+
+The Driver Pickup Flow validates that a driver physically receives all assigned cargo before delivery execution begins.
+
+This flow ensures:
+
+- pickup integrity
+- shipment completeness
+- package-level accountability
+- schedule execution accuracy
+
+Driver pickup scan is the final validation gate before:
+
+```text
+OUT_FOR_DELIVERY
+```
+
+---
+
+## 10.2 Normal Flow
+
+```mermaid
+flowchart LR
+Accept[Driver Accepts Schedule]
+--> Scan[Driver Pickup Scan]
+--> Validate[Validate Assigned Packages]
+--> Confirm[Pickup Confirmation]
+--> Start[Start Delivery]
+```
+
+---
+
+### Standard Processing Steps
+
+1. Driver accepts delivery schedule
+2. Driver scans assigned packages
+3. System validates package ownership
+4. System validates schedule completeness
+5. Driver confirms pickup completion
+6. System locks pickup result
+7. Driver starts delivery
+
+Successful outcome:
+
+```text
+Schedule Status = OUT_FOR_DELIVERY
+```
+
+---
+
+## 10.3 Core Pickup Rules
+
+---
+
+### Package Ownership Rule
+
+Every scanned package must belong to the accepted schedule.
+
+---
+
+### Pickup Completion Rule
+
+All required packages must be accounted for before delivery start.
+
+---
+
+### Shipment Atomicity Rule
+
+All packages belonging to one delivery_attempt must remain within same pickup execution unless split delivery is explicitly approved.
+
+---
+
+### Immutable Pickup Record Rule
+
+Pickup scan records become immutable once delivery begins.
+
+---
+
+## 10.4 Trigger Point
+
+Driver pickup exceptions are triggered:
+
+- During package scan
+- During pickup completion validation
+- During delivery start request
+- During shipment completeness check
+- During schedule integrity verification
+
+---
+
+## 10.5 Exception Scenarios
+
+---
+
+### DP-01 Package Not Belonging to Schedule
+
+#### Description
+
+Driver scans package not assigned to current schedule.
+
+#### Detection Rule
+
+```text
+package.schedule_id != current_schedule_id
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: PACKAGE_NOT_IN_SCHEDULE
+Severity: HIGH
+Status: OPEN
+```
+
+Reject scan.
+
+#### Operator Resolution Options
+
+- Reject package
+- Return package to warehouse
+- Supervisor scanned & approved
+
+---
+
+### DP-02 Partial Shipment Pickup
+
+#### Description
+
+Driver scans only part of a multi-package shipment.
+
+Example:
+
+```text
+Shipment package_count = 8
+Scanned = 6
+```
+
+#### Detection Rule
+
+```text
+0 < scanned_packages < shipment.package_count
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: PARTIAL_SHIPMENT_PICKUP
+Severity: HIGH
+Status: OPEN
+```
+
+Shipment enters pending reconciliation state.
+
+#### Operator Resolution Options
+
+- Supervisor-approved split delivery
+- Return incomplete shipment to warehouse
+
+---
+
+### DP-03 Pickup Completion Incomplete
+
+#### Description
+
+Driver attempts to complete pickup while required schedule cargo remains unscanned.
+
+#### Detection Rule
+
+```text
+scanned_cargo_processes < count(schedule.cargo_process)
+```
+
+#### System Action
+
+Create exception:
+
+```text
+Type: PICKUP_INCOMPLETE
+Severity: HIGH
+Status: OPEN
+```
+
+Block delivery start.
+
+#### Operator Resolution Options
+
+- Report missing cargo
+- Supervisor override
+
+---
+
+### DP-04 Unauthorized Force Pickup Attempt
+
+#### Description
+
+Driver attempts to scan or add cargo not assigned to schedule.
+
+#### Detection Rule
+
+Force-add request without valid authorization.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: UNAUTHORIZED_FORCE_PICKUP
+Severity: HIGH
+Status: OPEN
+```
+
+Reject operation.
+
+#### Notes
+
+Force pickup must require explicit supervisor approval if supported.
+
+---
+
+### DP-05 Driver Start Delivery With Unresolved Pickup Exception
+
+#### Description
+
+Driver attempts to start delivery with unresolved pickup issues.
+
+#### Detection Rule
+
+Blocking pickup exception exists.
+
+#### System Action
+
+Create exception:
+
+```text
+Type: DELIVERY_START_BLOCKED
+Severity: HIGH
+Status: OPEN
+```
+
+Block transition to:
+
+```text
+OUT_FOR_DELIVERY
+```
+
+---
+
+## 10.6 Delivery Start Gate
+
+A schedule may transition to delivery only if:
+
+```text
+all required packages scanned
+AND no blocking pickup exception exists
+AND shipment atomicity preserved
+```
+
+Only then:
+
+```text
+Schedule Status = OUT_FOR_DELIVERY
+```
+
+---
+
+## 10.7 Split Shipment Approval Workflow
+
+Shipment split during pickup is exceptional.
+
+Split delivery requires:
+
+- supervisor approval
+- explicit reason code
+- automatic shipment attempt split record
+- audit trail
+
+Examples:
+
+- package missing
+- damaged package
+- operational urgency
+
+---
+
+## 10.8 Status Transitions
+
+### Normal Flow
+
+```mermaid
+stateDiagram-v2
+    WAITING_FOR_DELIVERY --> PICKUP_SCANNING
+    PICKUP_SCANNING --> PICKUP_CONFIRMED
+    PICKUP_CONFIRMED --> OUT_FOR_DELIVERY
+```
+
+---
+
+### Exception Flow
+
+```mermaid
+stateDiagram-v2
+    PICKUP_SCANNING --> EXCEPTION_PENDING
+    EXCEPTION_PENDING --> PICKUP_SCANNING
+    EXCEPTION_PENDING --> REASSIGNMENT_REQUIRED
+```
+
+---
+
+## 10.9 Audit Requirements
+
+All driver pickup exceptions must log:
+
+- Schedule ID
+- Driver ID
+- Shipment ID
+- Package ID
+- Pickup session ID
+- Scan timestamp
+- Device ID if applicable
+- GPS location if available
+- Exception type
+- Resolution action
+- Supervisor override details
+
+---
+
+## 10.10 Notes
+
+Driver Pickup exceptions focus on physical custody transfer integrity.
+
+Delivery execution problems after departure belong to Delivery / POD Flow.
 
 ---
 
