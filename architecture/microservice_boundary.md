@@ -19,29 +19,25 @@
 +--------------------+              +------------------+
 | public-api-service |              | delivery-service |
 +--------------------+              +------------------+
-        |                                     |
-        |                                     |
-        +------------------+------------------+
-                           |
-                           v
-              +-------------------------+
-              | Core Business Services  |
-              +-------------------------+
-              | finance-service         |
-              | label-service           |
-              | report-service          |
-              | integration-service     |
-              +-------------------------+
-                           |
-                           v
-              +-------------------------+
-              | Shared Supporting       |
-              +-------------------------+
-              | file-service            |
-              | audit/log component     |
-              | notification later      |
-              +-------------------------+
+
++------------------------------------------------------+
+| Core Business Services                               |
+|                                                      |
+|  delivery-service     finance-service                |
+|                                                      |
++------------------------------------------------------+
+
++------------------------------------------------------+
+| Supporting Capability Services                       |
+|                                                      |
+|  file-service     label-service     report-service   |
+|  integration-service                                |
+|                                                      |
++------------------------------------------------------+
 ```
+Supporting services are not owned by a single upstream service.
+They may be called by multiple business services.
+
 External Entry
 --------------
 API Gateway
