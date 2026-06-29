@@ -9,26 +9,63 @@
 # Overall Architecture
 
 ```
-                 +----------------+
-                 | API Gateway    |
-                 +----------------+
-                         |
-        +----------------+----------------+
-        |                                 |
-+--------------------+          +----------------------+
-| public-api-service |          | delivery-service     |
-+--------------------+          +----------------------+
-        |                                 |
-        |                                 |
-        |                  +--------------+--------------+
-        |                  |              |              |
-        |                  |              |              |
-        v                  v              v              v
-  file-service      finance-service   label-service   report-service
-                          |
-                          |
-                   integration-service
+                    +-------------+
+                    | API Gateway |
+                    +-------------+
+                           |
+        +------------------+------------------+
+        |                                     |
+        v                                     v
++--------------------+              +------------------+
+| public-api-service |              | delivery-service |
++--------------------+              +------------------+
+        |                                     |
+        |                                     |
+        +------------------+------------------+
+                           |
+                           v
+              +-------------------------+
+              | Core Business Services  |
+              +-------------------------+
+              | finance-service         |
+              | label-service           |
+              | report-service          |
+              | integration-service     |
+              +-------------------------+
+                           |
+                           v
+              +-------------------------+
+              | Shared Supporting       |
+              +-------------------------+
+              | file-service            |
+              | audit/log component     |
+              | notification later      |
+              +-------------------------+
 ```
+External Entry
+--------------
+API Gateway
+public-api-service
+OP / Driver / Warehouse / Portal APIs
+
+Core Business
+-------------
+delivery-service
+finance-service
+
+Supporting Capabilities
+-----------------------
+file-service
+label-service
+report-service
+integration-service
+
+Shared Components
+-----------------
+audit log
+security
+common DTO
+constants
 
 The project uses **Shared Database + Service Ownership** instead of database-per-service.
 
