@@ -1,0 +1,26 @@
+flowchart LR
+    AuthController --> AuthService
+    AuthService --> UserMapper
+    AuthService --> JwtService
+    AuthService --> SessionService
+    AuthService --> LogService
+
+    CustomUserDetailsService --> UserMapper
+    CustomUserDetailsService --> RoleService
+
+    JwtAuthenticationFilter --> JwtService
+
+    subgraph identity [identity 业务域]
+        AuthController
+        AuthService
+        UserMapper
+        RoleService
+        SessionService
+    end
+
+    subgraph infrastructure [infrastructure 基础设施]
+        JwtService
+        JwtAuthenticationFilter
+        SecurityConfig
+        CustomUserDetailsService
+    end

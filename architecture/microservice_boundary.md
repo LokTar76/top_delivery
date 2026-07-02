@@ -110,24 +110,40 @@ A service should **never directly update another service's owned tables**.
 
 ## Responsibilities
 
-Acts as the external API boundary.
+Acts as the external customer API adapter / anti-corruption layer.
 
 It owns:
 
-* API Key / Secret validation
-* Signature verification
-* Client permission validation
-* Rate limiting
-* External reference deduplication
-* Idempotency key
-* Request schema validation
+* External API contract
 * API version management (v1 / v2)
+* Request schema validation
 * Customer-specific request mapping
-* Public DTO <-> Internal DTO mapping
-* Unified error response
+* Public DTO <-> Internal Command mapping
+* External reference deduplication
+* Idempotency key handling
+* Client/org context resolution
+* Client permission pre-check
+* Unified public error response
 * Response formatting
 * Webhook callback handling
-* API request logging
+* Public API request logging
+
+## Delegated to API Gateway
+
+The following responsibilities may be handled by the API Gateway if a gateway exists:
+
+* TLS termination
+* Routing
+* API Key / Secret validation
+* Signature verification
+* JWT validation
+* Rate limiting
+* IP allowlist / blocklist
+* Request size limit
+* CORS
+* Access logging
+
+If no dedicated API Gateway exists yet, public-api-service may temporarily handle these responsibilities.
 
 ## Does NOT own
 
@@ -140,16 +156,26 @@ It should NOT directly create or update:
 * manifest
 * invoice
 
+It should NOT decide whether a shipment can be cancelled, updated, assigned, delivered, or invoiced.
+
 Instead it calls business services.
 
 Example:
 
-```
+```text
 POST /shipments
 
 ↓
 
-Validate API Request
+API Gateway validates access token / API key / signature
+
+↓
+
+public-api-service validates public request schema
+
+↓
+
+Resolve client/org context
 
 ↓
 
@@ -158,7 +184,6 @@ Map to CreateShipmentCommand
 ↓
 
 delivery-service.createShipment(...)
-```
 
 ---
 
